@@ -2,11 +2,8 @@
 
 TcpClient::TcpClient() {
     sockets = new QList<QTcpSocket*>();
-    timer.setSingleShot(true);
-    timer.setInterval(TIME_BETWEEN_DISCOVERIES);
     pinger.setSingleShot(true);
     pinger.setInterval(TIME_BETWEEN_PINGS);
-    connect(&timer,SIGNAL(timeout()),this,SLOT(discover()));
     connect(&pinger,SIGNAL(timeout()),this,SLOT(ping()));
 }
 
@@ -27,9 +24,11 @@ void TcpClient::firstDiscovery() {
             return;
         }
     }
-    explorer = new TcpExplorer(SUBNET,mac,sockets);
+
+    explorer = new TcpExplorer;
+    explorer->init(this,SUBNET,mac,sockets);
     connect(explorer,SIGNAL(results(QList<QTcpSocket*>)),this,SLOT(findAvailableAddress(QList<QTcpSocket*>)));
-    explorer->discover();
+    explorer->start();
 }
 
 void TcpClient::findAvailableAddress(QList<QTcpSocket*> addresses) {
@@ -75,10 +74,11 @@ void TcpClient::ping() {
 }
 
 
-void TcpClient::discover() {/*
-    explorer = new TcpExplorer(SUBNET,mac,sockets,serverAddress);
+void TcpClient::discover() {
+    explorer = new TcpExplorer;
+    explorer->init(this,SUBNET,mac,sockets,serverAddress);
     connect(explorer,SIGNAL(results(QList<QTcpSocket*>)),this,SLOT(newSockets(QList<QTcpSocket*>)));
-    explorer->discover();*/
+    explorer->start();
 }
 
 
@@ -90,7 +90,6 @@ void TcpClient::newSockets(QList<QTcpSocket*> s) {
         connect(s.at(i),SIGNAL(readyRead()),this,SLOT(read()));
         connect(s.at(i),SIGNAL(stateChanged(QAbstractSocket::SocketState)),this,SLOT(onSocketStateChanged(QAbstractSocket::SocketState)));
     }
-    timer.start();
 }
 
 

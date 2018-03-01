@@ -1,43 +1,58 @@
 #ifndef TCPEXPLORER_H
 #define TCPEXPLORER_H
 
-#include <QObject>
+#include <QThread>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QHostAddress>
 #include "Constants.h"
 
-class TcpExplorer : public QObject {
+class TcpExplorer : public QThread {
     Q_OBJECT
 public :
-    TcpExplorer(QString subnet, QString mac, QList<QTcpSocket*>* existingSockets, QHostAddress serverAddress = QHostAddress("")) {
+    void init(QObject* parent, QString subnet, QString mac, QList<QTcpSocket*>* existingSockets, QHostAddress serverAddress = QHostAddress("")) {
         this->subnet = subnet;
         this->mac = mac;
         this->serverAddress = serverAddress;
         for(int i=0; i<MAX_PIS; i++)
-            sockets->append(new QTcpSocket());
+            sockets->append(new QTcpSocket(parent));
         if(!serverAddress.isNull())
             existing->append(serverAddress);
         for(int i=0; i<existingSockets->size();i++)
             existing->append(existingSockets->at(i)->peerAddress());
         ready = true;
+        connect(this,SIGNAL(initSocketsSignal()),this,SLOT(initSocket()));
     }
 
 signals:
+    void initSocketsSignal();
     void results(QList<QTcpSocket*>);
 
 public slots:
-    void discover() {
-        while(!ready);
+    void run() {
+        while(true) {
+            while(!ready);
 
-        if(currentIndex>=MAX_PIS) {
-            endTask();
-            return;
+            while(currentIndex<MAX_PIS) {
+                if(!pause) {
+                    pause = true;
+                    emit(initSocketsSignal());
+                }
+            }
+            pause = true;
+            emit(disconnectSockets());
+            while(pause);
+            emit(results(*valid));
+            currentIndex = 0;
+            wait(TIME_BETWEEN_DISCOVERIES);
         }
+    }
 
+
+private slots:
+    void initSocket() {
         QString temp = QString(subnet).replace(subnet.lastIndexOf("0"),1,QString::number(currentIndex));
         if(!existing->contains(QHostAddress(temp))) {
-            //qDebug() << "Trying " << temp;
             connect(sockets->at(currentIndex),SIGNAL(connected()),this,SLOT(onSocketConnected()));
             connect(sockets->at(currentIndex),SIGNAL(error(QAbstractSocket::SocketError)),this,SLOT(onSocketError(QAbstractSocket::SocketError)));
             connect(sockets->at(currentIndex),SIGNAL(stateChanged(QAbstractSocket::SocketState)),this,SLOT(onSocketStateChanged(QAbstractSocket::SocketState)));
@@ -45,20 +60,19 @@ public slots:
         } else {
             //qDebug() << currentIndex << " is already connected";
             currentIndex++;
-            discover();
+            pause = false;
         }
     }
 
-    void endTask() {
+    void disconnectSockets() {
         for(int i=0; i<sockets->size();i++) {
             disconnect(sockets->at(i),SIGNAL(connected()),this,SLOT(onSocketConnected()));
             disconnect(sockets->at(i),SIGNAL(error(QAbstractSocket::SocketError)),this,SLOT(onSocketError(QAbstractSocket::SocketError)));
             disconnect(sockets->at(i),SIGNAL(stateChanged(QAbstractSocket::SocketState)),this,SLOT(onSocketStateChanged(QAbstractSocket::SocketState)));
         }
-        emit(results(*valid));
+        pause = false;
     }
 
-private slots:
     void onSocketStateChanged(QAbstractSocket::SocketState state) {
         //qDebug() << "Socket state " << currentIndex <<"changed to " << state;
     }
@@ -69,7 +83,7 @@ private slots:
         valid->append(sockets->at(currentIndex));
         sockets->at(currentIndex)->write(QString(SEP_MAC).append(mac).append(SEP_MAC).toLatin1());
         currentIndex++;
-        discover();
+        pause = false;
     }
 
     void onSocketError(QAbstractSocket::SocketError error) {
@@ -77,7 +91,7 @@ private slots:
         sockets->at(currentIndex)->abort();
         sockets->at(currentIndex)->close();
         currentIndex++;
-        discover();
+        pause = false;
     }
 
 
@@ -91,6 +105,7 @@ private:
     int currentIndex = 0;
     bool ready = false;
     QString mac;
+    bool pause = false;
 
 };
 

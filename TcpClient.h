@@ -38,7 +38,6 @@ class TcpClient : public QObject {
         QString buffer = "";
         int server;
         TcpExplorer *explorer;
-        QTimer timer;
         QTimer pinger;
         QString mac;
 };
