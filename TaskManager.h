@@ -2,8 +2,15 @@
 #define TASKMANAGER_H
 
 #include <QObject>
+#include <QProcess>
 #include <QDebug>
+#include <QTimer>
+#include <QTcpSocket>
+#include <QHostAddress>
+#include <wiringPi.h>
 #include "TaskWrapper.h"
+#include "ServoThread.h"
+
 
 class TaskManager : public QObject {
         Q_OBJECT
@@ -11,17 +18,22 @@ class TaskManager : public QObject {
         TaskManager();
     signals:
         void giveTask(QString);
-        void cancelGive(long);
+        void enableShifting(bool);
+        void requestConnectedPis(int);
     public slots:
-        void receiveTask(QString);
-        void receiveTask(TaskWrapper*);
+        void receiveTask(QString, int sender = SENDER_TCP);
+        void receiveTask(TaskWrapper*, int sender);
         void localIp(int);
+        void connectedPis(QList<QPair<QTcpSocket*,QString>>*,int);
+        void piDisconnected(QString);
     private slots:
-        void doTask(QString id, int value, long taskId);
-        void cancelDo(long);
-        void cancelGive(TaskWrapper*);
+        void doTask(QString id, int value);
+        void doTask(QString id, QString value);
+        void doSyncedTasks();
+        int isDeviceConnected(QList<QPair<QTcpSocket *, QString> > *list, int dev);
     private:
-        QList<TaskWrapper*>* tasks;
+        QList<TaskWrapper*>* syncedTasks;
+        ServoThread *servo;
         int ip;
 };
 

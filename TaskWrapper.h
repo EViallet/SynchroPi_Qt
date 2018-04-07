@@ -3,116 +3,91 @@
 
 #include <QObject>
 #include <QDebug>
-#include <QTimer>
-#include "Constants.h"
+#include "GlobalVars.h"
+
+#define TYPE_INT 0
+#define TYPE_STR 1
 
 class TaskWrapper : public QObject {
     Q_OBJECT
 public:
-    TaskWrapper(long taskId, QString id, int value, int target, long millis = 0, bool singleShot = true) {
-        this->taskId = taskId;
+    TaskWrapper(QString id, int value, int target) {
         this->id = id;
         this->value = value;
         this->target = target;
-        this->millis = millis;
-        this->singleShot = singleShot||millis==0;
-        if(millis>0) {
-            connect(&timer,SIGNAL(timeout()),this,SLOT(trigger()));
-            timer.setSingleShot(singleShot);
-            timer.setInterval(millis);
-        }
+        this->type = TYPE_INT;
+    }
+
+    TaskWrapper(QString id, QString value, int target) {
+        this->id = id;
+        this->valueStr = value;
+        this->target = target;
+        this->type = TYPE_STR;
     }
 
     TaskWrapper(QString s) {
-        id = s.section(SEP_TASK_ITEM,1,1).replace(SEP_TASK_ITEM,"").replace(SEP_TASK,"");
-        value = s.section(SEP_TASK_ITEM,2,2).replace(SEP_TASK_ITEM,"").toInt();
-        target = s.section(SEP_TASK_ITEM,3,3).replace(SEP_TASK_ITEM,"").toInt();
-        millis = s.section(SEP_TASK_ITEM,4,4).replace(SEP_TASK_ITEM,"").toLong();
-        if(s.section(SEP_TASK_ITEM,5,5).replace(SEP_TASK_ITEM,"").replace(SEP_ENDTASK,"")=="t")
-            singleShot = true;
-        else
-            singleShot = false;
-
-        this->singleShot = singleShot||millis==0;
-        if(millis>0) {
-            connect(&timer,SIGNAL(timeout()),this,SLOT(trigger()));
-            timer.setSingleShot(singleShot);
-            timer.setInterval(millis);
-        }
+        type = s.section(SEP_TASK_ITEM,1,1).replace(SEP_TASK_ITEM,"").replace(SEP_TASK,"").toInt();
+        id = s.section(SEP_TASK_ITEM,2,2).replace(SEP_TASK_ITEM,"");
+        if(type==TYPE_INT)
+            value = s.section(SEP_TASK_ITEM,3,3).replace(SEP_TASK_ITEM,"").toInt();
+        else //if(type==TYPE_STR)
+            valueStr = s.section(SEP_TASK_ITEM,3,3).replace(SEP_TASK_ITEM,"");
+        target = s.section(SEP_TASK_ITEM,4,4).replace(SEP_TASK_ITEM,"").replace(SEP_ENDTASK,"").toInt();
     }
 
     bool operator==(TaskWrapper &other) {
         return toString()==other.toString();
     }
 
-    static int contains(QList<TaskWrapper*>* list, long id) {
-        for(int i=0; i<list->size(); i++)
-            if(list->at(i)->getTaskId()==id)
-                return i;
-        return -1;
-    }
-
-    static bool isTarget(QString task, int i) {
-        return i==-1||(new TaskWrapper(task))->getTarget()==i;
+    static int getTarget(QString task) {
+        return (new TaskWrapper(task))->getTarget();
     }
 
     static bool isValidTasks(QString tasks) {
-        qDebug() << "isValidTasks?" << tasks.count(SEP_TASK);
         return tasks.count(SEP_TASK)>=1&&tasks.count(SEP_ENDTASK)>=1;
     }
 
     static bool isValidTask(QString task) {
-        qDebug() << "isValidTask?" << task.count(SEP_TASK);
         return task.count(SEP_TASK)==1&&task.count(SEP_ENDTASK)==1;
     }
 
 public slots:
     QString toString() {
-        QString ss = singleShot?"t":"f";
-        return SEP_TASK+QString::number(taskId)+SEP_TASK_ITEM+id+SEP_TASK_ITEM+QString::number(value)+SEP_TASK_ITEM+QString::number(target)+SEP_TASK_ITEM+QString::number(millis)+SEP_TASK_ITEM+ss+SEP_ENDTASK;
+        if(type==TYPE_INT)
+            return QString(SEP_TASK).append(SEP_TASK_ITEM).append(QString::number(type)).append(SEP_TASK_ITEM).append(id).append(SEP_TASK_ITEM)
+                    .append(QString::number(value)).append(SEP_TASK_ITEM).append(QString::number(target)).append(SEP_ENDTASK);
+        else //if(type==TYPE_STR)
+            return QString(SEP_TASK).append(SEP_TASK_ITEM).append(QString::number(type)).append(SEP_TASK_ITEM).append(id).append(SEP_TASK_ITEM)
+                    .append(valueStr).append(SEP_TASK_ITEM).append(QString::number(target)).append(SEP_ENDTASK);
     }
 
-    bool isScheduled() {
-        return millis>0;
+    QString getId() {
+        return id;
     }
 
-    bool isRepetitive() {
-        return singleShot;
+    QString getStrValue() {
+        return valueStr;
+    }
+
+    int getValue() {
+        return value;
     }
 
     int getTarget() {
         return target;
     }
 
-    void registered() {
-        if(isScheduled())
-            timer.start();
-        else
-            trigger();
+    int getType() {
+        return type;
     }
 
-    void unregister() {
-        timer.stop();
-    }
 
-    long getTaskId() {
-        return taskId;
-    }
-
-signals:
-    void fireTask(QString,int,long);
-private slots:
-    void trigger() {
-        emit(fireTask(id,value,taskId));
-    }
 private:
     QString id;
     int value;
-    long taskId;
-    long millis;
-    bool singleShot;
-    QTimer timer;
+    QString valueStr;
     int target;
+    int type;
 };
 
 

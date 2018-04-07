@@ -15,15 +15,16 @@ HEADERS += \
     BluetoothHandler.h \
     TaskManager.h \
     TaskWrapper.h \
-    TcpExplorer.h \
-    Constants.h \
-    BluetoothCtl.h
+    GlobalVars.h \
+    ServoThread.h \
+    LedsController.h
 
 SOURCES += main.cpp\
     TcpHost.cpp \
     TcpClient.cpp \
     BluetoothHandler.cpp \
-    TaskManager.cpp \
-    BluetoothCtl.cpp
+    TaskManager.cpp
 
 DEFINES += QT_DEPRECATED_WARNINGS
+
+LIBS += -L/usr/local/include -lwiringPi -lpthread

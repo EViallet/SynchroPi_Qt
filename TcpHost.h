@@ -5,9 +5,10 @@
 #include <QTcpSocket>
 #include <QObject>
 #include <QNetworkInterface>
-#include <QTimer>
-#include "Constants.h"
+#include <QElapsedTimer>
+#include "GlobalVars.h"
 #include "TaskWrapper.h"
+#include "LedsController.h"
 
 
 class TcpHost : public QObject {
@@ -19,29 +20,34 @@ class TcpHost : public QObject {
         void clientDisconnected(QString);
         void serverOnline();
         void localIp(int);
-        void connectedPis(QList<QPair<QTcpSocket*,QString>>*);
+        void connectTo(QHostAddress);
+        void connectedPis(QList<QPair<QTcpSocket*,QString>>*, int sender);
     public slots:
         void broadcast(QString data);
-        void broadcast(long taskId);
         void startServer(QHostAddress);
-        void requestConnectedPis();
+        void requestConnectedPis(int sender);
+        void setCommandShift(bool shft);
+        void socketDisconnected(QString);
     private slots:
         void onClientConnected();
         void onClientDisconnected();
         void onClientDisconnected(QTcpSocket *socket);
-        void onClientStateChanged(QAbstractSocket::SocketState state);
 
         void write(QTcpSocket *socket, QString data);
         void onClientConnectionError(QAbstractSocket::SocketError error);
         void read();
         bool isComplete(QString str);
         int findIndex(QTcpSocket *socket);
+        int isDeviceConnected(int dev);
+        int contains(QList<QPair<int, int> > candidates, int i);
 private:
         QTcpServer *server;
         QHostAddress *address;
         QList<QPair<QTcpSocket*,QString>> *devices;
         QString buffer;
         int port;
+        bool cmdShft = false;
+        int localAd;
 };
 
 #endif // TCP_HOST_H

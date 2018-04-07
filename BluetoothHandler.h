@@ -8,7 +8,8 @@
 #include <QTcpSocket>
 #include <QHostAddress>
 #include "TaskWrapper.h"
-#include "Constants.h"
+#include "GlobalVars.h"
+#include "LedsController.h"
 
 
 class BluetoothHandler : public QObject {
@@ -17,14 +18,14 @@ class BluetoothHandler : public QObject {
         BluetoothHandler();
         ~BluetoothHandler();
     signals:
-        void onTaskReceived(TaskWrapper*);
+        void onTaskReceived(TaskWrapper*,int);
         void btAddress(QString);
-        void requestConnectedPis();
+        void requestConnectedPis(int);
     public slots:
         void tcpConnectionAlert(QString mac,QString ip);
         void tcpDisconnectionAlert(QString);
         void startServer();
-        void connectedPis(QList<QPair<QTcpSocket*,QString>>*);
+        void connectedPis(QList<QPair<QTcpSocket*,QString>>*, int);
         void localIp(int);
     private slots:
         void onClientConnected();
@@ -34,15 +35,16 @@ class BluetoothHandler : public QObject {
         bool isComplete(QString str);
         void write(QString data);
         void read();
-        void convertTask(long taskId, QString id, int cmd, QList<QPair<int, int> > *targets);
-        void convertTask(long taskid, QString id, bool cmd, QList<QPair<int, int> > *targets);
+        void convertTask(QString id, int cmd, QList<int> *targets);
+        void convertTask(QString id, bool cmd, QList<int> *targets);
+        void convertTask(QString id, QString cmd, QList<int> *targets);
 
         void terminateProgram();
         void shutdown();
 
         bool isCmdComplete(QString str);
         void tcpHeader();
-    private:
+private:
         bool firstStart = false;
         QBluetoothLocalDevice raspberry;
         QBluetoothAddress android;

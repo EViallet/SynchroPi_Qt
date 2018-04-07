@@ -16,13 +16,17 @@ void BluetoothHandler::startServer() {
     server = new QBluetoothServer(QBluetoothServiceInfo::RfcommProtocol);
     connect(server,SIGNAL(newConnection()),this,SLOT(onClientConnected()));
     server->listen(QBluetoothUuid(QString(UUID)));
-    qDebug() << "BT - Server online";
+    if(DEBUG_MODE)
+        qDebug() << "BT - Server online";
 }
 
-void BluetoothHandler::connectedPis(QList<QPair<QTcpSocket*, QString>> *devices) {
-    tcpHeader();
-    for(int i=0; i<devices->size();i++)
-        tcpConnectionAlert(devices->at(i).second,devices->at(i).first->peerAddress().toString().right(1));
+void BluetoothHandler::connectedPis(QList<QPair<QTcpSocket*, QString>> *devices, int sender) {
+    if(sender == SENDER_BT) {
+        tcpHeader();
+        for(int i=0; i<devices->size();i++)
+            if(devices->at(i).second.length()>2)
+                tcpConnectionAlert(devices->at(i).second,devices->at(i).first->peerAddress().toString().right(1));
+    }
 }
 
 void BluetoothHandler::localIp(int serverIp) {
@@ -32,8 +36,10 @@ void BluetoothHandler::localIp(int serverIp) {
 void BluetoothHandler::onClientConnected() {
     socket = server->nextPendingConnection();
 
-    qDebug() << "BT - Connected";
-    emit(requestConnectedPis());
+    if(DEBUG_MODE)
+        qDebug() << "BT - Connected";
+    LedsController::bluetoothConnected();
+    emit(requestConnectedPis(SENDER_BT));
     connect(socket,SIGNAL(readyRead()),this,SLOT(read()));
     connect(socket,SIGNAL(stateChanged(QBluetoothSocket::SocketState)),this,SLOT(onSocketStateChanged(QBluetoothSocket::SocketState)));
     connect(socket,SIGNAL(disconnected()),this,SLOT(disconnected()));
@@ -47,26 +53,27 @@ void BluetoothHandler::onSocketStateChanged(QBluetoothSocket::SocketState state)
 }
 
 void BluetoothHandler::disconnected() {
-    qDebug() << "BT - Disconnected";
-    //if(socket->isOpen())
-    //    socket->close();
+    if(DEBUG_MODE)
+        qDebug() << "BT - Disconnected";
+    LedsController::bluetoothDisconnected();
     startServer();
 }
 
 
 /** DATA HANDLING */
 bool BluetoothHandler::isComplete(QString str) {
-    return str.count(SEP_PACKET)>0&&str.count(SEP_TASKID)>=2&&(str.count(SEP_DBG)>=2||(str.count(SEP_ID)>=2&&(str.count(SEP_INT)>=2||str.count(SEP_STR)>=2||str.count(SEP_BOOL)>=2)));
+    return str.count(SEP_PACKET)>0&&(str.count(SEP_DBG)>=2||(str.count(SEP_ID)>=2&&(str.count(SEP_INT)>=2||str.count(SEP_STR)>=2||str.count(SEP_BOOL)>=2)));
 }
 
 bool BluetoothHandler::isCmdComplete(QString str) {
-    return str.count(SEP_TASKID)==2&&(str.count(SEP_DBG)==2||str.count(SEP_ID)==2&&(str.count(SEP_INT)==2||str.count(SEP_STR)==2||str.count(SEP_BOOL)==2));
+    return str.count(SEP_DBG)==2||(str.count(SEP_ID)==2&&(str.count(SEP_INT)==2||str.count(SEP_STR)==2||str.count(SEP_BOOL)==2));
 }
 
 
 void BluetoothHandler::write(QString data) {
-    if(socket!=nullptr&&socket->isOpen()) {
-        qDebug() << "BT - Writing " << data;
+    if(socket!=nullptr&&socket->state()==QBluetoothSocket::ConnectedState) {
+        if(DEBUG_MODE)
+            qDebug() << "BT - Writing " << data;
         socket->write(QString(SEP_PACKET).append(data).toLatin1());
     }
 }
@@ -75,11 +82,13 @@ void BluetoothHandler::write(QString data) {
 void BluetoothHandler::read() {
     QString str (socket->readAll());
 
-    str.replace(PING_CHAR,"");
+    if(str=="+")
+        return;
 
     bool valid = false;
     QString read = "";
 
+    str.replace("+","");
 
     if(!isComplete(str)) {
         buffer.append(str);
@@ -99,7 +108,8 @@ void BluetoothHandler::read() {
         QStringList cmds = read.split(SEP_PACKET);
         for(int i=1; i<cmds.length(); i++) {
             QString strCmd = cmds.at(i);
-            qDebug() << "BT - Received : " << strCmd;
+            if(DEBUG_MODE)
+                qDebug() << "BT - Received : " << strCmd;
             if(!isCmdComplete(strCmd)) {
                 buffer.append(strCmd);
                 break;
@@ -112,67 +122,81 @@ void BluetoothHandler::read() {
             } else {
                 if (strCmd.contains(SEP_INT)) {
                     QString id = strCmd.section(SEP_ID, 1, 1).replace(SEP_ID,"");
-                    long taskid = strCmd.section(SEP_TASKID,1,1).replace(SEP_TASKID,"").toLong();
                     int cmd = strCmd.section(SEP_INT, 1, 1).replace(SEP_INT,"").toInt();
-                    QList<QPair<int,int>>* targets = new QList<QPair<int,int>>();
+                    QList<int>* targets = new QList<int>();
                     if(strCmd.contains(SEP_MAC)) {
                         int sections = strCmd.count(SEP_MAC);
                         for(int i=0; i<sections; i+=2) {
                             int target = strCmd.section(SEP_MAC,i+1,i+1).replace(SEP_MAC,"").toInt();
-                            int delay = strCmd.section(SEP_DELAY,i+1,i+1).replace(SEP_DELAY,"").toInt();
-                            targets->append(QPair<int,int>(target,delay));
+                            targets->append(target);
                         }
                     } else
-                        targets->append(QPair<int,int>(TARGET_ALL,0));
+                        targets->append(TARGET_ALL);
 
-                    convertTask(taskid,id,cmd,targets);
+                    convertTask(id,cmd,targets);
 
                 } else if(strCmd.contains(SEP_BOOL)) {
                     QString id = strCmd.section(SEP_ID, 1, 1).replace(SEP_ID,"");
-                    long taskid = strCmd.section(SEP_TASKID,1,1).replace(SEP_TASKID,"").toLong();
                     bool cmd;
                     if(strCmd.section(SEP_BOOL, 1, 1).replace(SEP_BOOL,"")=="f")
                         cmd = false;
                     else
                         cmd = true;
-                    QList<QPair<int,int>>* targets = new QList<QPair<int,int>>();
+                    QList<int>* targets = new QList<int>();
                     if(strCmd.contains(SEP_MAC)) {
                         int sections = strCmd.count(SEP_MAC);
                         for(int i=0; i<sections; i+=2) {
                             int target = strCmd.section(SEP_MAC,i+1,i+1).replace(SEP_MAC,"").toInt();
-                            int delay = strCmd.section(SEP_DELAY,i+1,i+1).replace(SEP_DELAY,"").toInt();
-                            targets->append(QPair<int,int>(target,delay));
+                            targets->append(target);
                         }
                     } else
-                        targets->append(QPair<int,int>(TARGET_ALL,0));
+                        targets->append(TARGET_ALL);
 
-                    convertTask(taskid,id,cmd,targets);
+                    convertTask(id,cmd,targets);
 
                 } else if(strCmd.contains(SEP_STR)) {
                     QString id = strCmd.section(SEP_ID, 1, 1).replace(SEP_ID,"");
                     QString cmd = strCmd.section(SEP_STR, 1, 1).replace(SEP_STR,"");
-                    long taskid = strCmd.section(SEP_TASKID,1,1).replace(SEP_TASKID,"").toLong();
+                    QList<int>* targets = new QList<int>();
+                    if(strCmd.contains(SEP_MAC)) {
+                        int sections = strCmd.count(SEP_MAC);
+                        for(int i=0; i<sections; i+=2) {
+                            int target = strCmd.section(SEP_MAC,i+1,i+1).replace(SEP_MAC,"").toInt();
+                            targets->append(target);
+                        }
+                    } else
+                        targets->append(TARGET_ALL);
+
+                    convertTask(id,cmd,targets);
+
                 }
             }
         }
     }
 }
 
-void BluetoothHandler::convertTask(long taskId, QString id, int cmd, QList<QPair<int,int>>* targets) {
+void BluetoothHandler::convertTask(QString id, int cmd, QList<int>* targets) {
     for(int i=0; i<targets->size(); i++)
-        emit(onTaskReceived(new TaskWrapper(taskId,id,cmd,targets->at(i).first,targets->at(i).second)));
+        emit(onTaskReceived(new TaskWrapper(id,cmd,targets->at(i)),SENDER_BT));
 }
 
-void BluetoothHandler::convertTask(long taskId, QString id, bool cmd, QList<QPair<int,int>>* targets) {
+void BluetoothHandler::convertTask(QString id, bool cmd, QList<int>* targets) {
     for(int i=0; i<targets->size(); i++)
-        emit(onTaskReceived(new TaskWrapper(taskId,id,cmd,targets->at(i).first,targets->at(i).second)));
+        emit(onTaskReceived(new TaskWrapper(id,cmd,targets->at(i)),SENDER_BT));
+}
+
+void BluetoothHandler::convertTask(QString id, QString cmd, QList<int>* targets) {
+    for(int i=0; i<targets->size(); i++)
+        emit(onTaskReceived(new TaskWrapper(id,cmd,targets->at(i)),SENDER_BT));
 }
 
 
 void BluetoothHandler::terminateProgram() {
-    qDebug() << "BT - Removing connections";
-    if(socket->isOpen()) {
-        qDebug() << "BT - Was connected";
+    if(DEBUG_MODE)
+        qDebug() << "BT - Removing connections";
+    if(socket->state()==QBluetoothSocket::ConnectedState) {
+        if(DEBUG_MODE)
+            qDebug() << "BT - Was connected";
         write("Disconnecting");
     }
 }
@@ -189,13 +213,13 @@ BluetoothHandler::~BluetoothHandler() {
 
 /** TCP alerts */
 void BluetoothHandler::tcpHeader() {
-    write(QString(SEP_MAC).append(QString::number(serverIp)).append(SEP_MAC).append("M"));
+    write(QString(SEP_MAC).append(QString::number(serverIp)).append(SEP_MAC).append("PiMe"));
 }
 
 void BluetoothHandler::tcpConnectionAlert(QString mac, QString ip) {
-    write(QString(SEP_MAC).append(mac).append(SEP_MAC).append(ip).append(SEP_MAC).append("C"));
+    write(QString(SEP_MAC).append(mac).append(SEP_MAC).append(ip).append(SEP_MAC).append("PiCo"));
 }
 
 void BluetoothHandler::tcpDisconnectionAlert(QString address) {
-    write(QString(SEP_MAC).append(address).append(SEP_MAC).append("D"));
+    write(QString(SEP_MAC).append(address).append(SEP_MAC).append("PiDe"));
 }
